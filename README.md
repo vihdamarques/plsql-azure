@@ -4,7 +4,7 @@ PL/SQL package to handle some of Microsoft Azure functionalities. New features a
 
 ## Requirements
 
-This package requires [Oracle APEX 5.1+](http://apex.oracle.com) installed in databse since it uses the packages: APEX_STRING and APEX_JSON.
+This package requires [Oracle APEX 5.1+](http://apex.oracle.com) installed in database since it uses the packages: APEX_STRING and APEX_JSON.
 
 ## Current Functionalities
 
