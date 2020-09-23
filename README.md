@@ -17,6 +17,8 @@ This package requires [Oracle APEX 5.1+](http://apex.oracle.com) installed in da
 
 ## Examples
 
+### Configuration
+
 Set credentials (aways do this before making a call for the first time):
 
     begin
@@ -30,9 +32,13 @@ Set credentials (aways do this before making a call for the first time):
     end;
     /
 
+### Key Vault
+
 Get Key Vault Secret
 
     select pkg_azure.keyvault_get_secret('vault_name', 'secret_name') from dual;
+
+### Storage Account
 
 List Blobs
 
