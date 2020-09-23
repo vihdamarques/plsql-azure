@@ -1,6 +1,6 @@
 # plsql-azure
 
-PL/SQL package to handle some of Microsoft Azure functionalities. New features are going to be added on demand.
+PL/SQL package to handle some of Microsoft Azure functionalities. New features are going to be added on demand. Feel free to pull request enhancements.
 
 ## Requirements
 
