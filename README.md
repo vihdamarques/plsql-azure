@@ -2,6 +2,19 @@
 
 PL/SQL package to handle some of Microsoft Azure functionalities. New features are going to be added on demand.
 
+## Requirements
+
+This package requires [Oracle APEX 5.1+](http://apex.oracle.com) installed in databse since it uses the packages: APEX_STRING and APEX_JSON.
+
+## Current Functionalities
+
+* Key Vault
+  * Get Secret
+* Storage Account
+  * List Blobs
+  * Get Blob
+  * Put Blob
+
 ## Examples
 
 Set credentials (aways do this before making a call for the first time):
