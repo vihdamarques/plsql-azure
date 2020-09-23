@@ -1,12 +1,12 @@
 # plsql-azure
 
-PL/SQL package to handle some of Microsoft Azure functionalities. New features are going to be added on demand. Feel free to pull request enhancements.
+PL/SQL package to handle some of Microsoft Azure features via web service. New features are going to be added on demand. Feel free to pull request enhancements.
 
 ## Requirements
 
 This package requires [Oracle APEX 5.1+](http://apex.oracle.com) installed in database since it uses the packages: APEX_STRING and APEX_JSON.
 
-## Current Functionalities
+## Current Features
 
 * Key Vault
   * Get Secret
