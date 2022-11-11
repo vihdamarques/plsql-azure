@@ -63,7 +63,8 @@ create or replace package body pkg_azure as
                          p_payload           in varchar2 default null,
                          p_payload_blob      in blob     default null,
                          p_response_headers out t_headers,
-                         p_response_binary  out blob) is
+                         p_response_binary  out blob,
+                         p_response_status  out number) is
     c_timeout  constant number(6) := 240000;
     --
     l_request          utl_http.req;
@@ -80,12 +81,12 @@ create or replace package body pkg_azure as
     utl_http.set_transfer_timeout(c_timeout);
     --utl_http.set_body_charset('UTF-8');
     --
-    if lower(p_url) like 'https%' then
+    --if lower(p_url) like 'https%' then
       if g_wallet_path is not null then
         utl_http.set_wallet(g_wallet_path, g_wallet_pass);
-      else
-        raise_application_error(-20001, 'Wallet not set');
-      end if;
+    --  else
+    --    raise_application_error(-20001, 'Wallet not set');
+    --  end if;
     end if;
     --
     l_url := utl_url.escape(p_url, false, 'UTF-8');
@@ -132,10 +133,10 @@ create or replace package body pkg_azure as
     --
     dbms_output.put_line('----- Response Code -----');
     dbms_output.put_line(l_response.status_code || ' - ' || l_response.reason_phrase);
-    if l_response.status_code not like '2%' then
-      utl_http.end_response(l_response);
-      raise_application_error(-20001, 'Error ' || l_response.status_code || ' - ' || l_response.reason_phrase);
-    else -- Reads data
+    --if l_response.status_code not like '2%' then
+    --  utl_http.end_response(l_response);
+    --  raise_application_error(-20001, 'Error ' || l_response.status_code || ' - ' || l_response.reason_phrase);
+    --else -- Reads data
       dbms_lob.createTemporary(l_response_binary, TRUE);
       --
       begin
@@ -145,16 +146,16 @@ create or replace package body pkg_azure as
         end loop;
       exception
         when utl_http.end_of_body then null;
-        --when others then null;
       end;
       --
       utl_http.end_response(l_response);
       dbms_output.put_line('----- Request End -----');
       --
       p_response_binary := l_response_binary;
+      p_response_status := l_response.status_code;
       --
       dbms_lob.freetemporary(l_response_binary);
-    end if;
+    --end if;
   end make_request;
 
   function binary_request(p_url          in varchar2,
@@ -173,7 +174,8 @@ create or replace package body pkg_azure as
       p_payload,
       p_payload_blob,
       l_response_headers,
-      l_response_binary
+      l_response_binary,
+      l_response.status_code
     );
     --
     if l_response_headers.exists('Content-Type') then
@@ -230,8 +232,9 @@ create or replace package body pkg_azure as
                             ,l_warning);
     end if;
     --
-    l_response.text_data := l_clob;
-    l_response.mime_type := l_binary_response.mime_type;
+    l_response.status_code := l_binary_response.status_code;
+    l_response.text_data   := l_clob;
+    l_response.mime_type   := l_binary_response.mime_type;
     --
     dbms_lob.close(l_clob);
     dbms_lob.freeTemporary(l_clob);
@@ -344,7 +347,7 @@ create or replace package body pkg_azure as
     return l_secret;
   end keyvault_get_secret;
 
-  function storage_list_blobs(p_account in varchar2, p_container in varchar2, p_prefix in varchar2) return t_blob_list is
+  function storage_blob_list(p_account in varchar2, p_container in varchar2, p_prefix in varchar2) return t_blob_list is
     l_response    r_text_response;
     l_headers     t_headers;
     l_headers_adp t_headers;
@@ -358,7 +361,7 @@ create or replace package body pkg_azure as
     l_blob_list   t_blob_list := t_blob_list();
   begin
     l_timestamp := format_RFC1123(systimestamp);
-    l_resource  := apex_string.format(RESOURCE_BLOB, p_account);
+    l_resource  := apex_string.format(RESOURCE_STORAGE_BLOB, p_account);
     l_url       := apex_string.format('%s/%s?restype=container&comp=list&prefix=%s', l_resource, p_container, p_prefix);
     l_token     := authenticate(p_resource => l_resource);
     --
@@ -376,16 +379,16 @@ create or replace package body pkg_azure as
 
     for i in (
       select *
-        from xmltable (
-           '/EnumerationResults/Blobs/Blob'
-           passing l_xml
-           columns
-             file_name      varchar2(255) path 'Name',
-             creation_time  varchar2(255) path 'Properties/Creation-Time',
-             last_modified  varchar2(255) path 'Properties/Last-Modified',
-             content_length varchar2(255) path 'Properties/Content-Length',
-             content_type   varchar2(255) path 'Properties/Content-Type'
-         )
+        from XMLTable (
+               '/EnumerationResults/Blobs/Blob'
+               passing l_xml
+               columns
+                 file_name      varchar2(255) path 'Name',
+                 creation_time  varchar2(255) path 'Properties/Creation-Time',
+                 last_modified  varchar2(255) path 'Properties/Last-Modified',
+                 content_length varchar2(255) path 'Properties/Content-Length',
+                 content_type   varchar2(255) path 'Properties/Content-Type'
+             )
     ) loop
       l_blob_list.extend;
       l_blob_list(l_blob_list.count).file_name      := i.file_name;
@@ -396,9 +399,9 @@ create or replace package body pkg_azure as
     end loop;
 
     return l_blob_list;
-  end storage_list_blobs;
+  end storage_blob_list;
 
-  function storage_get_blob(p_account in varchar2, p_container in varchar2, p_blob_name in varchar2) return blob is
+  function storage_blob_get(p_account in varchar2, p_container in varchar2, p_blob_name in varchar2) return blob is
     l_response    r_binary_response;
     l_headers     t_headers;
     l_token       varchar2(32767);
@@ -408,7 +411,7 @@ create or replace package body pkg_azure as
     l_timestamp   varchar2(255);
   begin
     l_timestamp := format_RFC1123(systimestamp);
-    l_resource  := apex_string.format(RESOURCE_BLOB, p_account);
+    l_resource  := apex_string.format(RESOURCE_STORAGE_BLOB, p_account);
     l_url       := apex_string.format('%s/%s/%s', l_resource, p_container, p_blob_name);
     l_token     := authenticate(p_resource => l_resource);
     --
@@ -423,9 +426,9 @@ create or replace package body pkg_azure as
     );
 
     return l_response.file_data;
-  end storage_get_blob;
+  end storage_blob_get;
 
-  procedure storage_put_blob(p_account   in varchar2,
+  procedure storage_blob_put(p_account   in varchar2,
                              p_container in varchar2,
                              p_blob_name in varchar2,
                              p_content   in blob,
@@ -444,7 +447,7 @@ create or replace package body pkg_azure as
     end if;
     --
     l_timestamp := format_RFC1123(systimestamp);
-    l_resource  := apex_string.format(RESOURCE_BLOB, p_account);
+    l_resource  := apex_string.format(RESOURCE_STORAGE_BLOB, p_account);
     l_url       := apex_string.format('%s/%s/%s', l_resource, p_container, p_blob_name);
     l_token     := authenticate(p_resource => l_resource);
     --
@@ -464,6 +467,117 @@ create or replace package body pkg_azure as
       p_headers => l_headers,
       p_payload_blob => p_content
     );
-  end storage_put_blob;
+  end storage_blob_put;
+
+  function storage_queue_get(p_account            in varchar2,
+                             p_queue              in varchar2,
+                             p_num_of_messages    in number default null,
+                             p_visibility_timeout in number default null,
+                             p_timeout            in number default null,
+                             p_peek_only          in boolean default false)
+  return t_queue_list is
+    type t_string is table of varchar2(255) index by varchar2(255);
+    --
+    l_query_string t_string;
+    l_query_param varchar2(255);
+    l_response    r_text_response;
+    l_headers     t_headers;
+    l_token       varchar2(32767);
+    l_resource    varchar2(255);
+    l_url         varchar2(500);
+    --
+    l_timestamp   varchar2(255);
+    l_xml         XMLType;
+    l_queue_list  t_queue_list := t_queue_list();
+    l_queue_entry r_queue_entry;
+  begin
+    l_timestamp := format_RFC1123(systimestamp);
+    l_resource  := apex_string.format(RESOURCE_STORAGE_QUEUE, p_account);
+    l_token     := authenticate(p_resource => l_resource);
+    l_url       := l_resource || '/' || p_queue || '/messages';
+    --
+    if p_num_of_messages is not null then
+      l_query_string('numofmessages') := p_num_of_messages;
+    end if;
+
+    if p_visibility_timeout is not null then
+      l_query_string('visibilitytimeout') := p_visibility_timeout;
+    end if;
+
+    if p_timeout is not null then
+      l_query_string('timeout') := p_timeout;
+    end if;
+
+    if p_peek_only then
+      l_query_string('peekonly') := 'true';
+    end if;
+
+    if l_query_string.count > 0 then
+      l_query_param := l_query_string.first;
+      l_url := l_url || '?' || l_query_param || '=' || l_query_string(l_query_param);
+      loop
+        l_query_param := l_query_string.next(l_query_param);
+        exit when l_query_param is null;
+        l_url := l_url || '&' || l_query_param || '=' || l_query_string(l_query_param);
+      end loop;
+    end if;
+    --
+    l_headers('Authorization') := 'Bearer ' || l_token;
+    l_headers('x-ms-version')  := API_VERSION_STORAGE;
+    l_headers('x-ms-date')     := l_timestamp;
+    --
+    l_response := text_request (
+      p_url     => l_url,
+      p_method  => 'GET',
+      p_headers => l_headers
+    );
+    --
+    l_xml := XMLType(l_response.text_data);
+    --
+    if l_xml.existsNode('//Error') = 1 then
+      raise_application_error(-20001, l_xml.extract ('//Error').getStringVal());
+    else
+      for i in (select *
+                  from XMLTable (
+                         '//QueueMessagesList/QueueMessage'
+                         passing l_xml
+                         columns
+                           message_id        varchar2(255) path 'MessageId',
+                           insertion_time    varchar2(255) path 'InsertionTime',
+                           expiration_time   varchar2(255) path 'ExpirationTime',
+                           pop_receipt       varchar2(255) path 'PopReceipt',
+                           time_next_visible varchar2(255) path 'TimeNextVisible',
+                           dequeue_count     number        path 'DequeueCount',
+                           message_text      clob          path 'MessageText'
+                       )) loop
+        l_queue_entry                   := null;
+        l_queue_entry.message_id        := i.message_id;
+        l_queue_entry.insertion_time    := convert_RFC1123(i.insertion_time);
+        l_queue_entry.expiration_time   := convert_RFC1123(i.expiration_time);
+        l_queue_entry.time_next_visible := convert_RFC1123(i.time_next_visible);
+        l_queue_entry.pop_receipt       := i.pop_receipt;
+        l_queue_entry.dequeue_count     := i.dequeue_count;
+        l_queue_entry.message_text      := i.message_text;
+  
+        l_queue_list.extend();
+        l_queue_list(l_queue_list.count) := l_queue_entry;
+      end loop;
+    end if;
+
+    return l_queue_list;
+  end storage_queue_get;
+
+  function storage_queue_peek(p_account         in varchar2,
+                              p_queue           in varchar2,
+                              p_num_of_messages in number default null,
+                              p_timeout         in number default null)
+  return t_queue_list is
+  begin
+    return storage_queue_get(p_account            => p_account,
+                             p_queue              => p_queue,
+                             p_num_of_messages    => p_num_of_messages,
+                             p_timeout            => p_timeout,
+                             p_peek_only          => true);
+  end storage_queue_peek;
 end pkg_azure;
 /
