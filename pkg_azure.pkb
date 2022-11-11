@@ -45,6 +45,21 @@ create or replace package body pkg_azure as
            );
   end format_RFC1123;
 
+  function XMLEscape(p_clob in clob) return clob is
+  begin
+    return replace (
+             replace (
+               replace (
+                 replace (
+                   replace (
+                     p_clob,
+                   '&', '&amp;'),
+                 '''', '&apos;'),
+               '<', '&lt;'),
+             '>', '&gt;'),
+           '"', '&quot;');
+  end XMLEscape;
+
   function convert_RFC1123(p_timestamp in varchar2) return timestamp with time zone is
   begin
     return cast (
@@ -106,6 +121,9 @@ create or replace package body pkg_azure as
         l_header_name := p_headers.next(l_header_name);
       end loop;
     end if;
+    --
+    dbms_output.put_line('----- Request Payload -----');
+    dbms_output.put_line(p_payload);
     --
     if p_payload is not null then
       utl_http.write_text(r => l_request, data => p_payload);
@@ -579,5 +597,146 @@ create or replace package body pkg_azure as
                              p_timeout            => p_timeout,
                              p_peek_only          => true);
   end storage_queue_peek;
+
+  function storage_queue_put(p_account            in varchar2,
+                             p_queue              in varchar2,
+                             p_message            in clob, -- Max 65.536 caracteres (64K bytes) / must either be XML-escaped or Base64-encode / Ex: <QueueMessage><MessageText>message-content</MessageText></QueueMessage>
+                             p_visibility_timeout in number default null,
+                             p_message_ttl        in number default null, -- max 7 dias (604.800 segundos)
+                             p_timeout            in number default null)
+  return r_queue_entry is
+    type t_string is table of varchar2(255) index by varchar2(255);
+    --
+    l_query_string t_string;
+    l_query_param varchar2(255);
+    l_response    r_text_response;
+    l_headers     t_headers;
+    l_token       varchar2(32767);
+    l_resource    varchar2(255);
+    l_url         varchar2(500);
+    --
+    l_timestamp   varchar2(255);
+    l_xml         XMLType;
+    l_payload     clob;
+
+    l_queue_entry r_queue_entry;
+  begin
+    l_timestamp := format_RFC1123(systimestamp);
+    l_resource  := apex_string.format(RESOURCE_STORAGE_QUEUE, p_account);
+    l_token     := authenticate(p_resource => l_resource);
+    l_url       := l_resource || '/' || p_queue || '/messages';
+    --
+    if p_visibility_timeout is not null then
+      l_query_string('visibilitytimeout') := p_visibility_timeout;
+    end if;
+
+    if p_timeout is not null then
+      l_query_string('timeout') := p_timeout;
+    end if;
+
+    if l_query_string.count > 0 then
+      l_query_param := l_query_string.first;
+      l_url := l_url || '?' || l_query_param || '=' || l_query_string(l_query_param);
+      loop
+        l_query_param := l_query_string.next(l_query_param);
+        exit when l_query_param is null;
+        l_url := l_url || '&' || l_query_param || '=' || l_query_string(l_query_param);
+      end loop;
+    end if;
+    --
+    l_payload := '<QueueMessage><MessageText>' || XMLEscape(p_message) || '</MessageText></QueueMessage>';
+    --
+    l_headers('Authorization')  := 'Bearer ' || l_token;
+    l_headers('x-ms-version')   := API_VERSION_STORAGE;
+    l_headers('x-ms-date')      := l_timestamp;
+    l_headers('Content-Length') := length(l_payload);
+    --
+    l_response := text_request (
+      p_url     => l_url,
+      p_method  => 'POST',
+      p_headers => l_headers,
+      p_payload => l_payload
+    );
+    --
+    l_xml := XMLType(l_response.text_data);
+    --
+    if l_xml.existsNode('//Error') = 1 then
+      raise_application_error(-20001, l_xml.extract ('//Error').getStringVal());
+    else
+      for i in (select *
+                  from XMLTable (
+                         '//QueueMessagesList/QueueMessage'
+                         passing l_xml
+                         columns
+                           message_id        varchar2(255) path 'MessageId',
+                           insertion_time    varchar2(255) path 'InsertionTime',
+                           expiration_time   varchar2(255) path 'ExpirationTime',
+                           pop_receipt       varchar2(255) path 'PopReceipt',
+                           time_next_visible varchar2(255) path 'TimeNextVisible',
+                           dequeue_count     number        path 'DequeueCount',
+                           message_text      clob          path 'MessageText'
+                       )) loop
+        l_queue_entry                   := null;
+        l_queue_entry.message_id        := i.message_id;
+        l_queue_entry.insertion_time    := convert_RFC1123(i.insertion_time);
+        l_queue_entry.expiration_time   := convert_RFC1123(i.expiration_time);
+        l_queue_entry.time_next_visible := convert_RFC1123(i.time_next_visible);
+        l_queue_entry.pop_receipt       := i.pop_receipt;
+        l_queue_entry.dequeue_count     := i.dequeue_count;
+        l_queue_entry.message_text      := i.message_text;
+      end loop;
+    end if;
+    return l_queue_entry;
+  end storage_queue_put;
+
+  procedure storage_queue_delete(p_account     in varchar2,
+                                 p_queue       in varchar2,
+                                 p_message_id  in varchar2,
+                                 p_pop_receipt in varchar2 default null,
+                                 p_timeout     in number   default null) is
+    type t_string is table of varchar2(255) index by varchar2(255);
+    --
+    l_query_string t_string;
+    l_query_param varchar2(255);
+    l_response    r_text_response;
+    l_headers     t_headers;
+    l_token       varchar2(32767);
+    l_resource    varchar2(255);
+    l_url         varchar2(500);
+    --
+    l_timestamp   varchar2(255);
+    l_queue_entry r_queue_entry;
+  begin
+    l_timestamp := format_RFC1123(systimestamp);
+    l_resource  := apex_string.format(RESOURCE_STORAGE_QUEUE, p_account);
+    l_token     := authenticate(p_resource => l_resource);
+    l_url       := l_resource || '/' || p_queue || '/messages/' || p_message_id;
+    --
+    if p_timeout is not null then
+      l_query_string('timeout') := p_timeout;
+    end if;
+
+    l_query_string('popreceipt') := p_pop_receipt;
+
+    if l_query_string.count > 0 then
+      l_query_param := l_query_string.first;
+      l_url := l_url || '?' || l_query_param || '=' || l_query_string(l_query_param);
+      loop
+        l_query_param := l_query_string.next(l_query_param);
+        exit when l_query_param is null;
+        l_url := l_url || '&' || l_query_param || '=' || l_query_string(l_query_param);
+      end loop;
+    end if;
+    --
+    l_headers('Authorization')  := 'Bearer ' || l_token;
+    l_headers('x-ms-version')   := API_VERSION_STORAGE;
+    l_headers('x-ms-date')      := l_timestamp;
+    --
+    l_response := text_request (
+      p_url     => l_url,
+      p_method  => 'DELETE',
+      p_headers => l_headers
+    );
+  end storage_queue_delete;
 end pkg_azure;
 /

@@ -65,15 +65,18 @@ create or replace package pkg_azure as
                              p_container in varchar2,
                              p_prefix    in varchar2)
   return t_blob_list;
+
   function storage_blob_get(p_account   in varchar2,
                             p_container in varchar2,
                             p_blob_name in varchar2)
   return blob;
+
   procedure storage_blob_put(p_account   in varchar2,
                              p_container in varchar2,
                              p_blob_name in varchar2,
                              p_content   in blob,
                              p_mime_type in varchar2 default null);
+
   function storage_queue_get(p_account            in varchar2,
                              p_queue              in varchar2,
                              p_num_of_messages    in number default null,
@@ -81,22 +84,25 @@ create or replace package pkg_azure as
                              p_timeout            in number default null,
                              p_peek_only          in boolean default false)
   return t_queue_list;
+
   function storage_queue_peek(p_account         in varchar2,
                               p_queue           in varchar2,
                               p_num_of_messages in number default null,
                               p_timeout         in number default null)
   return t_queue_list;
-  --function storage_queue_put(p_account            in varchar2,
-  --                           p_queue              in varchar2,
-  --                           p_message            in clob, -- Max 65.536 caracteres (64K bytes) / must either be XML-escaped or Base64-encode / Ex: <QueueMessage><MessageText>message-content</MessageText></QueueMessage>
-  --                           p_visibility_timeout in number default null,
-  --                           p_message_ttl        in number default null, -- max 7 dias (604.800 segundos)
-  --                           p_timeout            in number default null)
-  --return r_queue_entry;
-  --procedure storage_queue_delete(p_account     in varchar2,
-  --                               p_queue       in varchar2,
-  --                               p_message_id  in number, -- max 65.536 caracteres (64K bytes)
-  --                               p_pop_receipt in number default null,
-  --                               p_timeout     in number default null);
+
+  function storage_queue_put(p_account            in varchar2,
+                             p_queue              in varchar2,
+                             p_message            in clob, -- Max 65.536 caracteres (64K bytes) / must either be XML-escaped or Base64-encode / Ex: <QueueMessage><MessageText>message-content</MessageText></QueueMessage>
+                             p_visibility_timeout in number default null,
+                             p_message_ttl        in number default null, -- max 7 dias (604.800 segundos)
+                             p_timeout            in number default null)
+  return r_queue_entry;
+
+  procedure storage_queue_delete(p_account     in varchar2,
+                                 p_queue       in varchar2,
+                                 p_message_id  in varchar2,
+                                 p_pop_receipt in varchar2 default null,
+                                 p_timeout     in number   default null);
 end pkg_azure;
 /
