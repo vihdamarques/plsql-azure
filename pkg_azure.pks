@@ -1,11 +1,13 @@
 create or replace package pkg_azure as
   -- Globals
-  RESOURCE_KEYVAULT      varchar2(255) := 'https://vault.azure.net';
-  RESOURCE_STORAGE_BLOB  varchar2(255) := 'https://%s.blob.core.windows.net';
-  RESOURCE_STORAGE_QUEUE varchar2(255) := 'https://%s.queue.core.windows.net';
-  API_VERSION_STORAGE    varchar2(255) := '2021-08-06';
-  API_VERSION_KEYVAULT   varchar2(255) := '7.1';
-
+  RESOURCE_KEYVAULT        varchar2(255) := 'https://vault.azure.net';
+  RESOURCE_STORAGE_BLOB    varchar2(255) := 'https://%s.blob.core.windows.net';
+  RESOURCE_STORAGE_QUEUE   varchar2(255) := 'https://%s.queue.core.windows.net';
+  RESOURCE_MANAGEMENT      varchar2(255) := 'https://management.azure.com/';
+  API_VERSION_STORAGE      varchar2(255) := '2021-08-06';
+  API_VERSION_KEYVAULT     varchar2(255) := '7.1';
+  API_VERSION_SUBSCRIPTION varchar2(255) := '2020-01-01';
+  API_VERSION_RESOURCES    varchar2(255) := '2021-04-01';
   -- Types
   subtype s_name is varchar2(255);
   subtype s_value is varchar2(32767);
@@ -39,6 +41,7 @@ create or replace package pkg_azure as
     checksum       varchar2(255)
   );
   type t_blob_list is table of r_blob_list;
+
   type r_queue_entry is record (
     message_id varchar2(255),
     insertion_time date,
@@ -49,6 +52,15 @@ create or replace package pkg_azure as
     message_text clob
   );
   type t_queue_list is table of r_queue_entry;
+  type r_subscription_entry is record (
+    id varchar2(255),
+    subscription_id varchar2(255),
+    tenant_id varchar2(255),
+    display_name varchar2(255),
+    state varchar2(255),
+    authorization_source varchar2(255)
+  );
+  type t_subscription_list is table of r_subscription_entry;
 
   -- Call at least once before other calls
   procedure set_config(p_tenant_id     in varchar2,
@@ -104,5 +116,10 @@ create or replace package pkg_azure as
                                  p_message_id  in varchar2,
                                  p_pop_receipt in varchar2 default null,
                                  p_timeout     in number   default null);
+
+  -- Management
+  
+  -- Subscriptions
+  function management_subscription_list return t_subscription_list;
 end pkg_azure;
 /

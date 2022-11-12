@@ -1,3 +1,5 @@
+set define off
+
 create or replace package body pkg_azure as
   g_token_cache   t_token;
   --
@@ -738,5 +740,61 @@ create or replace package body pkg_azure as
       p_headers => l_headers
     );
   end storage_queue_delete;
+
+  function management_subscription_list return t_subscription_list is
+    l_response    r_text_response;
+    l_headers     t_headers;
+    l_token       varchar2(32767);
+    l_resource    varchar2(255);
+    l_url         varchar2(500);
+    --
+    l_subscription_list  t_subscription_list := t_subscription_list();
+    l_subscription_entry r_subscription_entry;
+    --
+    l_json_object json_object_t;
+  begin
+    l_resource  := RESOURCE_MANAGEMENT;
+    l_token     := authenticate(p_resource => l_resource);
+    l_url       := l_resource || 'subscriptions?api-version=' || API_VERSION_SUBSCRIPTION;
+    --
+    l_headers('Authorization') := 'Bearer ' || l_token;
+    --
+    l_response := text_request (
+      p_url     => l_url,
+      p_method  => 'GET',
+      p_headers => l_headers
+    );
+    --
+    l_json_object := json_object_t.parse(l_response.text_data);
+    --
+    if l_json_object.has('error') then
+      raise_application_error(-20001, l_response.text_data);
+    else
+      for i in (select *
+                  from json_table(l_response.text_data, '$.value[*]'
+                       columns (
+                         id                   varchar2(255) path '$.id',
+                         subscription_id      varchar2(255) path '$.subscriptionId',
+                         tenant_id            varchar2(255) path '$.tenantId',
+                         display_name         varchar2(255) path '$.displayName',
+                         state                varchar2(255) path '$.state',
+                         authorization_source varchar2(255) path '$.authorizationSource'
+                       ))) loop
+        l_subscription_entry := null;
+        --
+        l_subscription_entry.id                   := i.id;
+        l_subscription_entry.subscription_id      := i.subscription_id;
+        l_subscription_entry.tenant_id            := i.tenant_id;
+        l_subscription_entry.display_name         := i.display_name;
+        l_subscription_entry.state                := i.state;
+        l_subscription_entry.authorization_source := i.authorization_source;
+        --
+        l_subscription_list.extend();
+        l_subscription_list(l_subscription_list.count) := l_subscription_entry;
+      end loop;
+    end if;
+
+    return l_subscription_list;
+  end management_subscription_list;
 end pkg_azure;
 /
