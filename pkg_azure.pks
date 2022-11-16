@@ -5,7 +5,7 @@ create or replace package pkg_azure as
   RESOURCE_STORAGE_QUEUE   varchar2(255) := 'https://%s.queue.core.windows.net';
   RESOURCE_MANAGEMENT      varchar2(255) := 'https://management.azure.com/';
   API_VERSION_STORAGE      varchar2(255) := '2021-08-06';
-  API_VERSION_KEYVAULT     varchar2(255) := '7.1';
+  API_VERSION_KEYVAULT     varchar2(255) := '7.3';
   API_VERSION_SUBSCRIPTION varchar2(255) := '2020-01-01';
   API_VERSION_RESOURCES    varchar2(255) := '2021-04-01';
   -- Types
@@ -70,7 +70,7 @@ create or replace package pkg_azure as
                        p_wallet_pass   in varchar2 default null);
 
   -- Azure Key Vault
-  function keyvault_get_secret(p_vault_name in varchar2, p_secret_name in varchar2) return varchar2;
+  function keyvault_secret_get(p_vault_name in varchar2, p_secret_name in varchar2) return varchar2;
 
   -- Azure Storage Account
   function storage_blob_list(p_account   in varchar2,

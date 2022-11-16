@@ -4,7 +4,7 @@ PL/SQL package to handle some of Microsoft Azure features via web service. New f
 
 ## Requirements
 
-This package requires [Oracle APEX 5.1+](http://apex.oracle.com) installed in database since it uses the packages: APEX_STRING and APEX_JSON.
+Previously, this package required [Oracle APEX 5.1+](http://apex.oracle.com) to be installed on database. This is no longer a requirement.
 
 ## Current Features
 
@@ -45,7 +45,7 @@ end;
 Get Key Vault Secret
 
 ````sql
-select pkg_azure.keyvault_get_secret('vault_name', 'secret_name') from dual;
+select pkg_azure.keyvault_secret_get('vault_name', 'secret_name') from dual;
 ````
 
 ### Storage Account

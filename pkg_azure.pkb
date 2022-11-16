@@ -283,15 +283,15 @@ create or replace package body pkg_azure as
                         p_client_secret in varchar2 default g_client_secret) return varchar2 is
     c_grant_type constant varchar2(20)  := 'client_credentials';
     --
-    l_headers    t_headers;
-    l_response   r_text_response;
-    l_payload    varchar2(32767);
+    l_headers     t_headers;
+    l_response    r_text_response;
+    l_payload     varchar2(32767);
     --
-    l_url_token  varchar2(255);
+    l_url_token   varchar2(255);
     --
-    l_error      varchar2(32767);
-    l_token      varchar2(32767);
-    l_expires_on date;
+    l_token       varchar2(4000);
+    l_expires_on  number;
+    l_json_object json_object_t;
   begin
     if p_tenant_id is null or p_client_id is null or p_client_secret is null then
       raise_application_error(-20001, 'tenant_id, client_id and client_secret are mandatory. Please call set_config before making a request.');
@@ -319,23 +319,22 @@ create or replace package body pkg_azure as
       p_payload => l_payload
     );
     --
-    apex_json.parse(l_response.text_data);
-    l_error := apex_json.get_varchar2('error_description');
+    l_json_object := json_object_t.parse(l_response.text_data);
     --
-    if l_error is not null then
-      raise_application_error(-20001, l_error);
+    if l_json_object.has('error') then
+      raise_application_error(-20001, l_response.text_data);
     else
-      l_token      := apex_json.get_varchar2('access_token');
-      l_expires_on := unix_timestamp_to_date(apex_json.get_varchar2('expires_on'));
+      l_token      := l_json_object.get_string('access_token');
+      l_expires_on := l_json_object.get_number('expires_on');
       --
       g_token_cache(p_tenant_id)(p_client_id)(p_resource).token      := l_token;
-      g_token_cache(p_tenant_id)(p_client_id)(p_resource).expires_on := l_expires_on;
+      g_token_cache(p_tenant_id)(p_client_id)(p_resource).expires_on := unix_timestamp_to_date(l_expires_on);
       --
       return l_token;
     end if;
   end authenticate;
 
-  function keyvault_get_secret(p_vault_name in varchar2, p_secret_name in varchar2) return varchar2 is
+  function keyvault_secret_get(p_vault_name in varchar2, p_secret_name in varchar2) return varchar2 is
     l_headers  t_headers;
     l_response r_text_response;
     l_token    varchar2(32767);
@@ -344,9 +343,11 @@ create or replace package body pkg_azure as
     l_response_body varchar2(32767);
     l_error         varchar2(32767);
     l_secret        varchar2(32767);
+    --
+    l_json_object json_object_t;
   begin
     l_token := authenticate(p_resource => RESOURCE_KEYVAULT);
-    l_url   := apex_string.format('https://%s.vault.azure.net/secrets/%s?api-version=%s', p_vault_name, p_secret_name, API_VERSION_KEYVAULT);
+    l_url   := 'https://' || p_vault_name || '.vault.azure.net/secrets/' || p_secret_name || '?api-version=' || API_VERSION_KEYVAULT;
     l_headers('Authorization') := 'Bearer ' || l_token;
     --
     l_response := text_request (
@@ -355,17 +356,16 @@ create or replace package body pkg_azure as
       p_headers => l_headers
     );
     --
-    apex_json.parse(l_response.text_data);
+    l_json_object := json_object_t.parse(l_response.text_data);
     --
-    l_error := apex_json.get_varchar2('error.message');
-    if l_error is not null then
-      raise_application_error(-20001, l_error);
+    if l_json_object.has('error') then
+      raise_application_error(-20001, l_response.text_data);
     else
-      l_secret := apex_json.get_varchar2('value');
+      l_secret := l_json_object.get_string('value');
     end if;
     --
     return l_secret;
-  end keyvault_get_secret;
+  end keyvault_secret_get;
 
   function storage_blob_list(p_account in varchar2, p_container in varchar2, p_prefix in varchar2) return t_blob_list is
     l_response    r_text_response;
@@ -381,8 +381,8 @@ create or replace package body pkg_azure as
     l_blob_list   t_blob_list := t_blob_list();
   begin
     l_timestamp := format_RFC1123(systimestamp);
-    l_resource  := apex_string.format(RESOURCE_STORAGE_BLOB, p_account);
-    l_url       := apex_string.format('%s/%s?restype=container&comp=list&prefix=%s', l_resource, p_container, p_prefix);
+    l_resource  := replace(RESOURCE_STORAGE_BLOB, '%s', p_account);
+    l_url       := l_resource || '/' || p_container || '?restype=container&comp=list&prefix=' || p_prefix;
     l_token     := authenticate(p_resource => l_resource);
     --
     l_headers('Authorization') := 'Bearer ' || l_token;
@@ -431,8 +431,8 @@ create or replace package body pkg_azure as
     l_timestamp   varchar2(255);
   begin
     l_timestamp := format_RFC1123(systimestamp);
-    l_resource  := apex_string.format(RESOURCE_STORAGE_BLOB, p_account);
-    l_url       := apex_string.format('%s/%s/%s', l_resource, p_container, p_blob_name);
+    l_resource  := replace(RESOURCE_STORAGE_BLOB, '%s', p_account);
+    l_url       := l_resource || '/' || p_container || '/' || p_blob_name;
     l_token     := authenticate(p_resource => l_resource);
     --
     l_headers('Authorization') := 'Bearer ' || l_token;
@@ -467,8 +467,8 @@ create or replace package body pkg_azure as
     end if;
     --
     l_timestamp := format_RFC1123(systimestamp);
-    l_resource  := apex_string.format(RESOURCE_STORAGE_BLOB, p_account);
-    l_url       := apex_string.format('%s/%s/%s', l_resource, p_container, p_blob_name);
+    l_resource  := replace(RESOURCE_STORAGE_BLOB, '%s', p_account);
+    l_url       := l_resource || '/' || p_container || '/' || p_blob_name;
     l_token     := authenticate(p_resource => l_resource);
     --
     l_headers('Authorization')  := 'Bearer ' || l_token;
@@ -512,7 +512,7 @@ create or replace package body pkg_azure as
     l_queue_entry r_queue_entry;
   begin
     l_timestamp := format_RFC1123(systimestamp);
-    l_resource  := apex_string.format(RESOURCE_STORAGE_QUEUE, p_account);
+    l_resource  := replace(RESOURCE_STORAGE_QUEUE, '%s', p_account);
     l_token     := authenticate(p_resource => l_resource);
     l_url       := l_resource || '/' || p_queue || '/messages';
     --
@@ -602,9 +602,9 @@ create or replace package body pkg_azure as
 
   function storage_queue_put(p_account            in varchar2,
                              p_queue              in varchar2,
-                             p_message            in clob, -- Max 65.536 caracteres (64K bytes) / must either be XML-escaped or Base64-encode / Ex: <QueueMessage><MessageText>message-content</MessageText></QueueMessage>
+                             p_message            in clob,
                              p_visibility_timeout in number default null,
-                             p_message_ttl        in number default null, -- max 7 dias (604.800 segundos)
+                             p_message_ttl        in number default null,
                              p_timeout            in number default null)
   return r_queue_entry is
     type t_string is table of varchar2(255) index by varchar2(255);
@@ -624,7 +624,7 @@ create or replace package body pkg_azure as
     l_queue_entry r_queue_entry;
   begin
     l_timestamp := format_RFC1123(systimestamp);
-    l_resource  := apex_string.format(RESOURCE_STORAGE_QUEUE, p_account);
+    l_resource  := replace(RESOURCE_STORAGE_QUEUE, '%s', p_account);
     l_token     := authenticate(p_resource => l_resource);
     l_url       := l_resource || '/' || p_queue || '/messages';
     --
@@ -710,7 +710,7 @@ create or replace package body pkg_azure as
     l_queue_entry r_queue_entry;
   begin
     l_timestamp := format_RFC1123(systimestamp);
-    l_resource  := apex_string.format(RESOURCE_STORAGE_QUEUE, p_account);
+    l_resource  := replace(RESOURCE_STORAGE_QUEUE, '%s', p_account);
     l_token     := authenticate(p_resource => l_resource);
     l_url       := l_resource || '/' || p_queue || '/messages/' || p_message_id;
     --
